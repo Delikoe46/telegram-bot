@@ -2,9 +2,17 @@ import os
 import random
 import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    CallbackQueryHandler,
+    ContextTypes,
+)
 
 TOKEN = os.getenv("TOKEN")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+PORT = int(os.environ.get("PORT", 8080))
+
 CHANNEL_ID = -1003870607173
 
 SITES = {
@@ -25,7 +33,6 @@ async def create(update: Update, context: ContextTypes.DEFAULT_TYPE):
         site_id = args[3] if len(args) > 3 else "1"
 
         site = SITES.get(site_id, SITES["1"])
-
         gid = str(update.message.id)
 
         giveaways[gid] = {
@@ -64,10 +71,10 @@ async def create(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.application.create_task(timer(context, gid))
 
     except Exception as e:
-        print("CREATE HIBA:", e)
+        print("CREATE ERROR:", e)
 
 
-# JOIN + COUNTER
+# JOIN
 async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -104,7 +111,7 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer("✅ Jelentkeztél!")
 
 
-# ⏳ TIMER (másodperces + fix end)
+# TIMER
 async def timer(context, gid):
     try:
         while True:
@@ -147,7 +154,7 @@ async def timer(context, gid):
         await end_giveaway(context, gid)
 
     except Exception as e:
-        print("TIMER HIBA:", e)
+        print("TIMER ERROR:", e)
 
 
 # END
@@ -198,5 +205,10 @@ app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("create", create))
 app.add_handler(CallbackQueryHandler(button))
 
-print("Bot elindult 🚀")
-app.run_polling()
+print("Webhook indul 🚀")
+
+app.run_webhook(
+    listen="0.0.0.0",
+    port=PORT,
+    webhook_url=WEBHOOK_URL
+)
