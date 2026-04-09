@@ -4,7 +4,7 @@ import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
 
-TOKEN = os.getenv("8687430803:AAGuuwryIXvbMSKDlJxc2eIwTe2NExLILDM")
+TOKEN = os.getenv("TOKEN")
 CHANNEL_ID = -1003870607173
 
 # affiliate linkek (site szám alapján)
