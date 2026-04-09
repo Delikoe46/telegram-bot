@@ -30,7 +30,6 @@ async def create(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         args = context.args
-
         winners = int(args[0])
 
         possible_site = args[-1].lower()
@@ -57,7 +56,8 @@ async def create(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "site_id": site_id,
             "remaining": minutes,
             "message_id": None,
-            "active": True
+            "active": True,
+            "last_winners": []
         }
 
         keyboard = InlineKeyboardMarkup([
@@ -87,7 +87,6 @@ async def create(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         giveaways[gid]["message_id"] = msg.message_id
-
         context.application.create_task(timer(context, gid))
 
     except Exception as e:
@@ -203,6 +202,8 @@ async def end_giveaway(context, gid):
         min(len(users), g["winners"])
     )
 
+    g["last_winners"] = winners  # 🔥 fontos
+
     text = "\n".join(
         [f"<a href='tg://user?id={u}'>{g['participants'][u]}</a>" for u in winners]
     )
@@ -219,7 +220,7 @@ async def end_giveaway(context, gid):
     )
 
 
-# REROLL
+# 🔄 SMART REROLL
 async def reroll(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global LAST_GIVEAWAY
 
@@ -230,24 +231,42 @@ async def reroll(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Nincs kit újrahúzni")
         return
 
-    users = list(g["participants"].keys())
+    try:
+        reroll_count = int(context.args[0]) if context.args else g["winners"]
+    except:
+        reroll_count = g["winners"]
 
-    winners = random.sample(
-        users,
-        min(len(users), g["winners"])
+    users = list(g["participants"].keys())
+    old_winners = g.get("last_winners", [])
+
+    available = [u for u in users if u not in old_winners]
+
+    if not available:
+        await update.message.reply_text("❌ Nincs új ember a rerollhoz")
+        return
+
+    new_winners = random.sample(
+        available,
+        min(len(available), reroll_count)
     )
 
+    final_winners = old_winners.copy()
+    final_winners = final_winners[: g["winners"] - len(new_winners)]
+    final_winners.extend(new_winners)
+
+    g["last_winners"] = final_winners
+
     text = "\n".join(
-        [f"<a href='tg://user?id={u}'>{g['participants'][u]}</a>" for u in winners]
+        [f"<a href='tg://user?id={u}'>{g['participants'][u]}</a>" for u in final_winners]
     )
 
     await context.bot.send_message(
         CHANNEL_ID,
-        f"""🔄 ÚJRA SORSOLÁS!
+        f"""🔄 REROLL!
 
 🎁 {g['prize']}
 
-🎉 Új nyertesek:
+🎉 Friss nyertesek:
 {text}""",
         parse_mode="HTML"
     )
