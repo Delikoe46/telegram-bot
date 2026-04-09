@@ -22,9 +22,12 @@ SITES = {
 }
 
 giveaways = {}
+LAST_GIVEAWAY = None
 
 # CREATE
 async def create(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global LAST_GIVEAWAY
+
     try:
         args = context.args
 
@@ -44,6 +47,7 @@ async def create(update: Update, context: ContextTypes.DEFAULT_TYPE):
         site = SITES.get(site_id)
 
         gid = str(update.message.id)
+        LAST_GIVEAWAY = gid
 
         giveaways[gid] = {
             "participants": {},
@@ -90,7 +94,7 @@ async def create(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print("CREATE ERROR:", e)
 
 
-# JOIN + COUNTER
+# JOIN
 async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -215,6 +219,64 @@ async def end_giveaway(context, gid):
     )
 
 
+# REROLL
+async def reroll(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global LAST_GIVEAWAY
+
+    gid = LAST_GIVEAWAY
+    g = giveaways.get(gid)
+
+    if not g or not g["participants"]:
+        await update.message.reply_text("❌ Nincs kit újrahúzni")
+        return
+
+    users = list(g["participants"].keys())
+
+    winners = random.sample(
+        users,
+        min(len(users), g["winners"])
+    )
+
+    text = "\n".join(
+        [f"<a href='tg://user?id={u}'>{g['participants'][u]}</a>" for u in winners]
+    )
+
+    await context.bot.send_message(
+        CHANNEL_ID,
+        f"""🔄 ÚJRA SORSOLÁS!
+
+🎁 {g['prize']}
+
+🎉 Új nyertesek:
+{text}""",
+        parse_mode="HTML"
+    )
+
+
+# CANCEL
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global LAST_GIVEAWAY
+
+    gid = LAST_GIVEAWAY
+    g = giveaways.get(gid)
+
+    if not g:
+        await update.message.reply_text("❌ Nincs aktív giveaway")
+        return
+
+    g["active"] = False
+
+    try:
+        await context.bot.delete_message(
+            chat_id=CHANNEL_ID,
+            message_id=g["message_id"]
+        )
+    except:
+        pass
+
+    await update.message.reply_text("🛑 Giveaway törölve")
+
+
 # START
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Bot fut 🚀")
@@ -225,6 +287,8 @@ app = ApplicationBuilder().token(TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("create", create))
+app.add_handler(CommandHandler("reroll", reroll))
+app.add_handler(CommandHandler("cancel", cancel))
 app.add_handler(CallbackQueryHandler(button))
 
 print("Webhook indul 🚀")
