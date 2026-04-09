@@ -2,7 +2,7 @@ import random
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler
 
-TOKEN = "8687430803:AAGuuwryIXvbMSKDlJxc2eIwTe2NExLILDM"
+TOKEN = "IDE_IRD_A_TOKENED"
 CHANNEL_ID = -1003870607173
 
 ALLOWED_USERS = [5052230816, 5510741509]
@@ -12,8 +12,6 @@ SITES = {
     "2": "https://ddspn.lynmonkel.com/?mid=28093_2098891",
     "3": "https://redirspinner.com/2Mt3?p=%2Fregistration%2F"
 }
-
-FIX_IMAGE = "https://via.placeholder.com/600x300.png?text=GIVEAWAY"
 
 giveaway = {
     "active": False,
@@ -28,9 +26,23 @@ giveaway = {
 
 print("BOT ELINDUL...")
 
+# START
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Szia! 🎉")
 
+# RESET
+async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in ALLOWED_USERS:
+        return
+
+    giveaway["active"] = False
+    giveaway["participants"].clear()
+    giveaway["message_id"] = None
+    giveaway["remaining"] = 0
+
+    await update.message.reply_text("Reset kész ✅")
+
+# CREATE
 async def create(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ALLOWED_USERS:
         await update.message.reply_text("Nincs jogosultságod ❌")
@@ -79,10 +91,10 @@ async def create(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ⏳ {duration_minutes} perc
 """
 
-    msg = await context.bot.send_photo(
+    # 💥 NINCS SEND_PHOTO → NINCS CRASH
+    msg = await context.bot.send_message(
         chat_id=CHANNEL_ID,
-        photo=FIX_IMAGE,
-        caption=text,
+        text=text,
         reply_markup=reply_markup
     )
 
@@ -91,6 +103,9 @@ async def create(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.job_queue.run_repeating(update_timer, interval=60)
     context.job_queue.run_once(end_giveaway, giveaway["remaining"])
 
+    await update.message.reply_text("✅ Giveaway elindítva!")
+
+# BUTTON
 async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -117,6 +132,7 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except:
         pass
 
+# TIMER
 async def update_timer(context: ContextTypes.DEFAULT_TYPE):
     if not giveaway["active"]:
         return
@@ -135,15 +151,16 @@ async def update_timer(context: ContextTypes.DEFAULT_TYPE):
 """
 
     try:
-        await context.bot.edit_message_caption(
+        await context.bot.edit_message_text(
             chat_id=CHANNEL_ID,
             message_id=giveaway["message_id"],
-            caption=text,
+            text=text,
             reply_markup=giveaway["reply_markup"]
         )
     except:
         pass
 
+# END
 async def end_giveaway(context: ContextTypes.DEFAULT_TYPE):
     if not giveaway["active"]:
         return
@@ -151,7 +168,7 @@ async def end_giveaway(context: ContextTypes.DEFAULT_TYPE):
     participants = list(giveaway["participants"])
 
     if not participants:
-        await context.bot.send_message(CHANNEL_ID, "Nincs résztvevő")
+        await context.bot.send_message(CHANNEL_ID, "Nincs résztvevő 😅")
         giveaway["active"] = False
         return
 
@@ -164,10 +181,12 @@ async def end_giveaway(context: ContextTypes.DEFAULT_TYPE):
 
     giveaway["active"] = False
 
+# RUN
 app = ApplicationBuilder().token(TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("create", create))
+app.add_handler(CommandHandler("reset", reset))
 app.add_handler(CallbackQueryHandler(button))
 
 print("Bot elindult... 🚀")
