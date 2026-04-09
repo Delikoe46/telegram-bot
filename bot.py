@@ -40,7 +40,7 @@ async def create(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "winners": winners,
             "prize": prize,
             "site": site,
-            "remaining": minutes * 60,
+            "remaining": minutes,
             "message_id": None,
             "active": True
         }
@@ -53,7 +53,7 @@ async def create(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 🎁 {prize}
 👥 Nyertesek: {winners}
-⏳ {minutes}:00
+⏳ {minutes} perc
 
 🔗 {site}
 
@@ -111,7 +111,7 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer("✅ Jelentkeztél!")
 
 
-# TIMER
+# TIMER (percenként, gomb marad!)
 async def timer(context, gid):
     try:
         while True:
@@ -123,20 +123,20 @@ async def timer(context, gid):
             if g["remaining"] <= 0:
                 break
 
-            await asyncio.sleep(1)
+            await asyncio.sleep(60)
             g["remaining"] -= 1
 
-            if g["remaining"] % 5 != 0:
-                continue
+            count = len(g["participants"])
 
-            minutes = g["remaining"] // 60
-            seconds = g["remaining"] % 60
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton(f"🎉 Részt veszek ({count})", callback_data=f"join_{gid}")]
+            ])
 
             text = f"""🎉 GIVEAWAY!
 
 🎁 {g['prize']}
 👥 Nyertesek: {g['winners']}
-⏳ {minutes}:{seconds:02d}
+⏳ {g['remaining']} perc
 
 🔗 {g['site']}
 
@@ -146,7 +146,8 @@ async def timer(context, gid):
                 await context.bot.edit_message_caption(
                     chat_id=CHANNEL_ID,
                     message_id=g["message_id"],
-                    caption=text
+                    caption=text,
+                    reply_markup=keyboard  # 💥 EZ TARTJA MEG A GOMBOT
                 )
             except:
                 pass
@@ -198,7 +199,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Bot fut 🚀")
 
 
-# MAIN
+# MAIN (WEBHOOK)
 app = ApplicationBuilder().token(TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
