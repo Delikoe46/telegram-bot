@@ -1,89 +1,50 @@
+import os
 import random
+import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler
+from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
 
-TOKEN = "8687430803:AAGuuwryIXvbMSKDlJxc2eIwTe2NExLILDM"
+TOKEN = os.getenv("8687430803:AAGuuwryIXvbMSKDlJxc2eIwTe2NExLILDM")
 CHANNEL_ID = -1003870607173
 
-ALLOWED_USERS = [5052230816, 5510741509]
-
+# affiliate linkek (site szám alapján)
 SITES = {
     "1": "https://ddspn.lynmonkel.com/?mid=28093_2098891",
     "2": "https://ddspn.lynmonkel.com/?mid=28093_2098891",
     "3": "https://redirspinner.com/2Mt3?p=%2Fregistration%2F"
 }
 
-giveaway = {
-    "active": False,
-    "prize": "",
-    "winners_count": 0,
-    "participants": set(),
-    "message_id": None,
-    "remaining": 0,
-    "site_link": "",
-    "reply_markup": None
-}
-
-print("BOT ELINDUL...")
+# több giveaway
+giveaways = {}
 
 # START
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Szia! 🎉")
-
-# RESET
-async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ALLOWED_USERS:
-        return
-
-    giveaway["active"] = False
-    giveaway["participants"].clear()
-    giveaway["message_id"] = None
-    giveaway["remaining"] = 0
-
-    await update.message.reply_text("Reset kész ✅")
+    await update.message.reply_text("Bot fut 🚀")
 
 # CREATE
 async def create(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ALLOWED_USERS:
-        await update.message.reply_text("Nincs jogosultságod ❌")
-        return
-
-    if giveaway["active"]:
-        await update.message.reply_text("Már fut egy giveaway ❗")
-        return
-
-    if len(context.args) < 4:
-        await update.message.reply_text("Használat: /create oldal nyeremény nyertesek perc")
-        return
-
-    site_key = context.args[0]
-    if site_key not in SITES:
-        await update.message.reply_text("Hibás oldal ❌")
-        return
-
     try:
-        winners_count = int(context.args[-2])
-        duration_minutes = int(context.args[-1])
+        args = context.args
+        site = args[0]
+        prize = args[1]
+        winners_count = int(args[2])
+        duration_minutes = int(args[3])
     except:
-        await update.message.reply_text("Hibás szám ❌")
+        await update.message.reply_text("Használat: /create [site] [nyeremény] [nyertesek] [perc]")
         return
 
-    prize = " ".join(context.args[1:-2])
+    if site not in SITES:
+        await update.message.reply_text("Hibás site ID!")
+        return
 
-    giveaway["active"] = True
-    giveaway["prize"] = prize
-    giveaway["winners_count"] = winners_count
-    giveaway["participants"].clear()
-    giveaway["remaining"] = duration_minutes * 60
-    giveaway["site_link"] = SITES[site_key]
+    giveaway_id = str(random.randint(1000, 9999))
 
-    keyboard = [[InlineKeyboardButton("🎉 Részvétel (0)", callback_data="join")]]
+    keyboard = [[InlineKeyboardButton("🎉 Részvétel", callback_data=f"join_{giveaway_id}")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    giveaway["reply_markup"] = reply_markup
 
     text = f"""🎉 GIVEAWAY!
 
-🔗 {giveaway['site_link']}
+🔗 {SITES[site]}
 
 🎁 {prize}
 👥 Nyertesek: {winners_count}
@@ -91,56 +52,69 @@ async def create(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ⏳ {duration_minutes} perc
 """
 
-    # 💥 NINCS SEND_PHOTO → NINCS CRASH
-    msg = await context.bot.send_message(
-        chat_id=CHANNEL_ID,
-        text=text,
-        reply_markup=reply_markup
-    )
+    # KÉP + POSZT
+    try:
+        msg = await context.bot.send_photo(
+            chat_id=CHANNEL_ID,
+            photo=open("image.jpg", "rb"),
+            caption=text,
+            reply_markup=reply_markup
+        )
+    except Exception as e:
+        await update.message.reply_text(f"Hiba kép küldésnél: {e}")
+        return
 
-    giveaway["message_id"] = msg.message_id
+    giveaways[giveaway_id] = {
+        "active": True,
+        "participants": set(),
+        "winners_count": winners_count,
+        "prize": prize,
+        "remaining": duration_minutes * 60,
+        "message_id": msg.message_id,
+        "site_link": SITES[site],
+        "reply_markup": reply_markup
+    }
 
-    context.job_queue.run_repeating(update_timer, interval=60)
-    context.job_queue.run_once(end_giveaway, giveaway["remaining"])
+    # TIMER INDÍTÁS
+    context.application.create_task(timer_task(context, giveaway_id))
 
-    await update.message.reply_text("✅ Giveaway elindítva!")
+    await update.message.reply_text("Giveaway elindítva 🚀")
 
-# BUTTON
-async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# JOIN
+async def join(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
+    giveaway_id = query.data.split("_")[1]
+
+    if giveaway_id not in giveaways:
+        return
+
+    giveaway = giveaways[giveaway_id]
+
     if not giveaway["active"]:
         return
 
-    user = query.from_user.username or str(query.from_user.id)
+    user_id = query.from_user.id
 
-    if user in giveaway["participants"]:
+    if user_id in giveaway["participants"]:
+        await query.answer("Már részt veszel!", show_alert=True)
         return
 
-    giveaway["participants"].add(user)
-    count = len(giveaway["participants"])
-
-    keyboard = [[InlineKeyboardButton(f"🎉 Részvétel ({count})", callback_data="join")]]
-
-    try:
-        await context.bot.edit_message_reply_markup(
-            chat_id=CHANNEL_ID,
-            message_id=giveaway["message_id"],
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-    except:
-        pass
+    giveaway["participants"].add(user_id)
+    await query.answer("Csatlakoztál! 🎉")
 
 # TIMER
-async def update_timer(context: ContextTypes.DEFAULT_TYPE):
-    if not giveaway["active"]:
-        return
+async def timer_task(context, giveaway_id):
+    giveaway = giveaways[giveaway_id]
 
-    giveaway["remaining"] -= 60
-    minutes = max(giveaway["remaining"] // 60, 0)
+    while giveaway["active"] and giveaway["remaining"] > 0:
+        await asyncio.sleep(60)
+        giveaway["remaining"] -= 60
 
-    text = f"""🎉 GIVEAWAY!
+        minutes = max(giveaway["remaining"] // 60, 0)
+
+        text = f"""🎉 GIVEAWAY!
 
 🔗 {giveaway['site_link']}
 
@@ -150,45 +124,58 @@ async def update_timer(context: ContextTypes.DEFAULT_TYPE):
 ⏳ {minutes} perc
 """
 
-    try:
-        await context.bot.edit_message_text(
-            chat_id=CHANNEL_ID,
-            message_id=giveaway["message_id"],
-            text=text,
-            reply_markup=giveaway["reply_markup"]
-        )
-    except:
-        pass
+        try:
+            await context.bot.edit_message_caption(
+                chat_id=CHANNEL_ID,
+                message_id=giveaway["message_id"],
+                caption=text,
+                reply_markup=giveaway["reply_markup"]
+            )
+        except:
+            pass
+
+    await end_giveaway(context, giveaway_id)
 
 # END
-async def end_giveaway(context: ContextTypes.DEFAULT_TYPE):
+async def end_giveaway(context, giveaway_id):
+    giveaway = giveaways[giveaway_id]
+
     if not giveaway["active"]:
         return
 
     participants = list(giveaway["participants"])
 
     if not participants:
-        await context.bot.send_message(CHANNEL_ID, "Nincs résztvevő 😅")
+        await context.bot.send_message(CHANNEL_ID, "Nincs résztvevő 😢")
         giveaway["active"] = False
         return
 
-    winners = random.sample(participants, min(len(participants), giveaway["winners_count"]))
+    winners = random.sample(
+        participants,
+        min(len(participants), giveaway["winners_count"])
+    )
+
+    winners_text = "\n".join([f"👤 {w}" for w in winners])
 
     await context.bot.send_message(
         CHANNEL_ID,
-        "🏆 NYERTESEK:\n" + "\n".join([f"@{w}" for w in winners])
+        f"""🏁 GIVEAWAY LEZÁRVA!
+
+🎁 {giveaway['prize']}
+
+🎉 Nyertesek:
+{winners_text}
+"""
     )
 
     giveaway["active"] = False
 
-# RUN
+# MAIN
 app = ApplicationBuilder().token(TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("create", create))
-app.add_handler(CommandHandler("reset", reset))
-app.add_handler(CallbackQueryHandler(button))
+app.add_handler(CallbackQueryHandler(join, pattern="join_"))
 
-print("Bot elindult... 🚀")
-
+print("Bot elindult 🚀")
 app.run_polling()
