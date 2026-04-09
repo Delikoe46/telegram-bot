@@ -16,8 +16,9 @@ PORT = int(os.environ.get("PORT", 8080))
 CHANNEL_ID = -1003870607173
 
 SITES = {
-    "1": "https://ddspn.lynmonkel.com/?mid=28093_2098891",
-    "2": "https://redirspinner.com/2Mt3?p=%2Fregistration%2F"
+    "spinbetter": "https://redirspinner.com/2Mt3?p=%2Fregistration%2F",
+    "dudespin": "https://ddspn.lynmonkel.com/?mid=28093_2098891",
+    "betmatch": "https://trackmyaff.com/?serial=61343867&creative_id=3540"
 }
 
 giveaways = {}
@@ -28,11 +29,20 @@ async def create(update: Update, context: ContextTypes.DEFAULT_TYPE):
         args = context.args
 
         winners = int(args[0])
-        prize = args[1]
-        minutes = int(args[2])
-        site_id = args[3] if len(args) > 3 else "1"
 
-        site = SITES.get(site_id, SITES["1"])
+        possible_site = args[-1].lower()
+
+        if possible_site in SITES:
+            site_id = possible_site
+            minutes = int(args[-2])
+            prize = " ".join(args[1:-2])
+        else:
+            site_id = None
+            minutes = int(args[-1])
+            prize = " ".join(args[1:-1])
+
+        site = SITES.get(site_id)
+
         gid = str(update.message.id)
 
         giveaways[gid] = {
@@ -40,6 +50,7 @@ async def create(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "winners": winners,
             "prize": prize,
             "site": site,
+            "site_id": site_id,
             "remaining": minutes,
             "message_id": None,
             "active": True
@@ -54,10 +65,15 @@ async def create(update: Update, context: ContextTypes.DEFAULT_TYPE):
 🎁 {prize}
 👥 Nyertesek: {winners}
 ⏳ {minutes} perc
+"""
 
-🔗 {site}
+        if site:
+            text += f"\n🔗 {site}"
 
-👇 Jelentkezz!"""
+        if site_id == "spinbetter":
+            text += "\n\n🎁 Használd a promo kódot: BETHUNTERS"
+
+        text += "\n\n👇 Jelentkezz!"
 
         msg = await context.bot.send_photo(
             chat_id=CHANNEL_ID,
@@ -74,7 +90,7 @@ async def create(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print("CREATE ERROR:", e)
 
 
-# JOIN
+# JOIN + COUNTER
 async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -111,7 +127,7 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer("✅ Jelentkeztél!")
 
 
-# TIMER (percenként, gomb marad!)
+# TIMER
 async def timer(context, gid):
     try:
         while True:
@@ -137,17 +153,22 @@ async def timer(context, gid):
 🎁 {g['prize']}
 👥 Nyertesek: {g['winners']}
 ⏳ {g['remaining']} perc
+"""
 
-🔗 {g['site']}
+            if g["site"]:
+                text += f"\n🔗 {g['site']}"
 
-👇 Jelentkezz!"""
+            if g.get("site_id") == "spinbetter":
+                text += "\n\n🎁 Promo kód: BETHUNTERS"
+
+            text += "\n\n👇 Jelentkezz!"
 
             try:
                 await context.bot.edit_message_caption(
                     chat_id=CHANNEL_ID,
                     message_id=g["message_id"],
                     caption=text,
-                    reply_markup=keyboard  # 💥 EZ TARTJA MEG A GOMBOT
+                    reply_markup=keyboard
                 )
             except:
                 pass
@@ -199,7 +220,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Bot fut 🚀")
 
 
-# MAIN (WEBHOOK)
+# MAIN
 app = ApplicationBuilder().token(TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
