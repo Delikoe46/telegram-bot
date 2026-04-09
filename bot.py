@@ -202,7 +202,7 @@ async def end_giveaway(context, gid):
         min(len(users), g["winners"])
     )
 
-    g["last_winners"] = winners  # 🔥 fontos
+    g["last_winners"] = winners
 
     text = "\n".join(
         [f"<a href='tg://user?id={u}'>{g['participants'][u]}</a>" for u in winners]
@@ -220,7 +220,7 @@ async def end_giveaway(context, gid):
     )
 
 
-# 🔄 SMART REROLL
+# 🔄 FIXED REROLL
 async def reroll(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global LAST_GIVEAWAY
 
@@ -239,6 +239,15 @@ async def reroll(update: Update, context: ContextTypes.DEFAULT_TYPE):
     users = list(g["participants"].keys())
     old_winners = g.get("last_winners", [])
 
+    if not old_winners:
+        await update.message.reply_text("❌ Még nem volt sorsolás")
+        return
+
+    reroll_count = min(reroll_count, len(old_winners))
+
+    removed = random.sample(old_winners, reroll_count)
+    remaining = [u for u in old_winners if u not in removed]
+
     available = [u for u in users if u not in old_winners]
 
     if not available:
@@ -250,10 +259,7 @@ async def reroll(update: Update, context: ContextTypes.DEFAULT_TYPE):
         min(len(available), reroll_count)
     )
 
-    final_winners = old_winners.copy()
-    final_winners = final_winners[: g["winners"] - len(new_winners)]
-    final_winners.extend(new_winners)
-
+    final_winners = remaining + new_winners
     g["last_winners"] = final_winners
 
     text = "\n".join(
