@@ -15,12 +15,6 @@ PORT = int(os.environ.get("PORT", 8080))
 
 CHANNEL_ID = -1003870607173
 
-SITES = {
-    "spinbetter": "https://redirspinner.com/2Mt3?p=%2Fregistration%2F",
-    "dudespin": "https://ddspn.lynmonkel.com/?mid=28093_2098891",
-    "betmatch": "https://trackmyaff.com/?serial=61343867&creative_id=3540"
-}
-
 giveaways = {}
 LAST_GIVEAWAY = None
 
@@ -32,18 +26,8 @@ async def create(update: Update, context: ContextTypes.DEFAULT_TYPE):
         args = context.args
         winners = int(args[0])
 
-        possible_site = args[-1].lower()
-
-        if possible_site in SITES:
-            site_id = possible_site
-            minutes = int(args[-2])
-            prize = " ".join(args[1:-2])
-        else:
-            site_id = None
-            minutes = int(args[-1])
-            prize = " ".join(args[1:-1])
-
-        site = SITES.get(site_id)
+        minutes = int(args[-1])
+        prize = " ".join(args[1:-1])
 
         gid = str(update.message.id)
         LAST_GIVEAWAY = gid
@@ -52,8 +36,6 @@ async def create(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "participants": {},
             "winners": winners,
             "prize": prize,
-            "site": site,
-            "site_id": site_id,
             "remaining": minutes,
             "message_id": None,
             "active": True,
@@ -69,15 +51,10 @@ async def create(update: Update, context: ContextTypes.DEFAULT_TYPE):
 🎁 {prize}
 👥 Nyertesek: {winners}
 ⏳ {minutes} perc
-"""
 
-        if site:
-            text += f"\n🔗 {site}"
+🔗 https://abethunters.com/
 
-        if site_id == "spinbetter":
-            text += "\n\n🎁 Használd a promo kódot: BETHUNTERS"
-
-        text += "\n\n👇 Jelentkezz!"
+👇 Jelentkezz!"""
 
         msg = await context.bot.send_photo(
             chat_id=CHANNEL_ID,
@@ -156,15 +133,10 @@ async def timer(context, gid):
 🎁 {g['prize']}
 👥 Nyertesek: {g['winners']}
 ⏳ {g['remaining']} perc
-"""
 
-            if g["site"]:
-                text += f"\n🔗 {g['site']}"
+🔗 https://abethunters.com/
 
-            if g.get("site_id") == "spinbetter":
-                text += "\n\n🎁 Promo kód: BETHUNTERS"
-
-            text += "\n\n👇 Jelentkezz!"
+👇 Jelentkezz!"""
 
             try:
                 await context.bot.edit_message_caption(
@@ -220,7 +192,7 @@ async def end_giveaway(context, gid):
     )
 
 
-# 🔄 REROLL (FULL NEW LIST X DARAB)
+# REROLL (ÚJ LISTA)
 async def reroll(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global LAST_GIVEAWAY
 
