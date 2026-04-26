@@ -7,6 +7,8 @@ from telegram.ext import (
     CommandHandler,
     CallbackQueryHandler,
     ContextTypes,
+    MessageHandler,
+    filters
 )
 
 TOKEN = os.getenv("TOKEN")
@@ -17,15 +19,24 @@ CHANNEL_ID = -1003870607173
 
 giveaways = {}
 LAST_GIVEAWAY = None
+user_states = {}
 
-# CREATE
+# ================= PANEL =================
+
+async def panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🎁 Giveaway indítása", callback_data="panel_create")]
+    ])
+    await update.message.reply_text("⚙️ Panel:", reply_markup=keyboard)
+
+# ================= CREATE =================
+
 async def create(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global LAST_GIVEAWAY
 
     try:
         args = context.args
         winners = int(args[0])
-
         minutes = int(args[-1])
         prize = " ".join(args[1:-1])
 
@@ -39,7 +50,6 @@ async def create(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "remaining": minutes,
             "message_id": None,
             "active": True,
-            "last_winners": []
         }
 
         keyboard = InlineKeyboardMarkup([
@@ -69,66 +79,157 @@ async def create(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         print("CREATE ERROR:", e)
 
+# ================= BUTTON =================
 
-# JOIN
 async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    gid = query.data.split("_")[1]
-    g = giveaways.get(gid)
+    user_id = query.from_user.id
 
-    if not g or not g["active"]:
+    # PANEL START
+    if query.data == "panel_create":
+        user_states[user_id] = {"step": "prize"}
+        await query.message.reply_text("🎁 Írd be a nyereményt:")
         return
 
-    uid = query.from_user.id
-    name = query.from_user.first_name
+    # TIME SELECT
+    if query.data.startswith("time_"):
+        minutes = int(query.data.split("_")[1])
+        user_states[user_id]["minutes"] = minutes
+        user_states[user_id]["step"] = "confirm"
 
-    if uid in g["participants"]:
-        await query.answer("❗ Már benne vagy", show_alert=True)
+        s = user_states[user_id]
+
+        preview = f"""👀 ELŐNÉZET:
+
+🎁 {s['prize']}
+👥 Nyertesek: {s['winners']}
+⏳ {minutes} perc
+
+🔗 https://abethunters.com/
+
+Elindítod?"""
+
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("✅ Igen", callback_data="confirm_yes")],
+            [InlineKeyboardButton("❌ Nem", callback_data="confirm_no")]
+        ])
+
+        await query.message.reply_text(preview, reply_markup=keyboard)
         return
 
-    g["participants"][uid] = name
-    count = len(g["participants"])
+    # CONFIRM
+    if query.data == "confirm_yes":
+        s = user_states[user_id]
 
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton(f"🎉 Részt veszek ({count})", callback_data=f"join_{gid}")]
-    ])
+        context.args = [
+            str(s["winners"]),
+            *s["prize"].split(),
+            str(s["minutes"])
+        ]
 
-    try:
-        await context.bot.edit_message_reply_markup(
-            chat_id=CHANNEL_ID,
-            message_id=g["message_id"],
-            reply_markup=keyboard
-        )
-    except:
-        pass
+        del user_states[user_id]
 
-    await query.answer("✅ Jelentkeztél!")
+        await create(update, context)
+        return
 
+    if query.data == "confirm_no":
+        del user_states[user_id]
+        await query.message.reply_text("❌ Megszakítva")
+        return
 
-# TIMER
+    # JOIN
+    if query.data.startswith("join_"):
+        gid = query.data.split("_")[1]
+        g = giveaways.get(gid)
+
+        if not g or not g["active"]:
+            return
+
+        uid = query.from_user.id
+        name = query.from_user.first_name
+
+        if uid in g["participants"]:
+            await query.answer("❗ Már benne vagy", show_alert=True)
+            return
+
+        g["participants"][uid] = name
+        count = len(g["participants"])
+
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton(f"🎉 Részt veszek ({count})", callback_data=f"join_{gid}")]
+        ])
+
+        try:
+            await context.bot.edit_message_reply_markup(
+                chat_id=CHANNEL_ID,
+                message_id=g["message_id"],
+                reply_markup=keyboard
+            )
+        except:
+            pass
+
+        await query.answer("✅ Jelentkeztél!")
+
+# ================= PANEL INPUT =================
+
+async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+
+    if user_id not in user_states:
+        return
+
+    state = user_states[user_id]
+    step = state["step"]
+    text = update.message.text
+
+    if step == "prize":
+        state["prize"] = text
+        state["step"] = "winners"
+        await update.message.reply_text("👥 Hány nyertes?")
+        return
+
+    if step == "winners":
+        try:
+            state["winners"] = int(text)
+        except:
+            await update.message.reply_text("❗ Számot írj!")
+            return
+
+        state["step"] = "time"
+
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("1 perc", callback_data="time_1")],
+            [InlineKeyboardButton("5 perc", callback_data="time_5")],
+            [InlineKeyboardButton("10 perc", callback_data="time_10")]
+        ])
+
+        await update.message.reply_text("⏳ Válassz időt:", reply_markup=keyboard)
+        return
+
+# ================= TIMER =================
+
 async def timer(context, gid):
-    try:
-        while True:
-            g = giveaways.get(gid)
+    while True:
+        g = giveaways.get(gid)
 
-            if not g or not g["active"]:
-                return
+        if not g or not g["active"]:
+            return
 
-            if g["remaining"] <= 0:
-                break
+        if g["remaining"] <= 0:
+            break
 
-            await asyncio.sleep(60)
-            g["remaining"] -= 1
+        await asyncio.sleep(60)
+        g["remaining"] -= 1
 
-            count = len(g["participants"])
+        count = len(g["participants"])
 
-            keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton(f"🎉 Részt veszek ({count})", callback_data=f"join_{gid}")]
-            ])
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton(f"🎉 Részt veszek ({count})", callback_data=f"join_{gid}")]
+        ])
 
-            text = f"""🎉 GIVEAWAY!
+        text = f"""🎉 GIVEAWAY!
 
 🎁 {g['prize']}
 👥 Nyertesek: {g['winners']}
@@ -138,23 +239,20 @@ async def timer(context, gid):
 
 👇 Jelentkezz!"""
 
-            try:
-                await context.bot.edit_message_caption(
-                    chat_id=CHANNEL_ID,
-                    message_id=g["message_id"],
-                    caption=text,
-                    reply_markup=keyboard
-                )
-            except:
-                pass
+        try:
+            await context.bot.edit_message_caption(
+                chat_id=CHANNEL_ID,
+                message_id=g["message_id"],
+                caption=text,
+                reply_markup=keyboard
+            )
+        except:
+            pass
 
-        await end_giveaway(context, gid)
+    await end_giveaway(context, gid)
 
-    except Exception as e:
-        print("TIMER ERROR:", e)
+# ================= END =================
 
-
-# END
 async def end_giveaway(context, gid):
     g = giveaways.get(gid)
 
@@ -169,12 +267,7 @@ async def end_giveaway(context, gid):
 
     users = list(g["participants"].keys())
 
-    winners = random.sample(
-        users,
-        min(len(users), g["winners"])
-    )
-
-    g["last_winners"] = winners
+    winners = random.sample(users, min(len(users), g["winners"]))
 
     text = "\n".join(
         [f"<a href='tg://user?id={u}'>{g['participants'][u]}</a>" for u in winners]
@@ -191,33 +284,25 @@ async def end_giveaway(context, gid):
         parse_mode="HTML"
     )
 
+# ================= REROLL =================
 
-# REROLL (ÚJ LISTA)
 async def reroll(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global LAST_GIVEAWAY
 
-    gid = LAST_GIVEAWAY
-    g = giveaways.get(gid)
+    g = giveaways.get(LAST_GIVEAWAY)
 
     if not g or not g["participants"]:
-        await update.message.reply_text("❌ Nincs kit újrahúzni")
         return
 
     users = list(g["participants"].keys())
 
-    try:
-        reroll_count = int(context.args[0]) if context.args else g["winners"]
-    except:
-        reroll_count = g["winners"]
+    count = int(context.args[0]) if context.args else g["winners"]
+    count = min(count, len(users))
 
-    reroll_count = min(reroll_count, len(users))
-
-    new_winners = random.sample(users, reroll_count)
-
-    g["last_winners"] = new_winners
+    new = random.sample(users, count)
 
     text = "\n".join(
-        [f"<a href='tg://user?id={u}'>{g['participants'][u]}</a>" for u in new_winners]
+        [f"<a href='tg://user?id={u}'>{g['participants'][u]}</a>" for u in new]
     )
 
     await context.bot.send_message(
@@ -231,16 +316,14 @@ async def reroll(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="HTML"
     )
 
+# ================= CANCEL =================
 
-# CANCEL
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global LAST_GIVEAWAY
 
-    gid = LAST_GIVEAWAY
-    g = giveaways.get(gid)
+    g = giveaways.get(LAST_GIVEAWAY)
 
     if not g:
-        await update.message.reply_text("❌ Nincs aktív giveaway")
         return
 
     g["active"] = False
@@ -253,22 +336,23 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except:
         pass
 
-    await update.message.reply_text("🛑 Giveaway törölve")
+# ================= START =================
 
-
-# START
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Bot fut 🚀")
 
+# ================= MAIN =================
 
-# MAIN
 app = ApplicationBuilder().token(TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
+app.add_handler(CommandHandler("panel", panel))
 app.add_handler(CommandHandler("create", create))
 app.add_handler(CommandHandler("reroll", reroll))
 app.add_handler(CommandHandler("cancel", cancel))
+
 app.add_handler(CallbackQueryHandler(button))
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
 
 print("Webhook indul 🚀")
 
