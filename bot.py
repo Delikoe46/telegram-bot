@@ -87,19 +87,22 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = query.from_user.id
 
-    # PANEL START
+    # ===== PANEL START =====
     if query.data == "panel_create":
         user_states[user_id] = {"step": "prize"}
         await query.message.reply_text("🎁 Írd be a nyereményt:")
         return
 
-    # TIME SELECT
+    # ===== TIME SELECT =====
     if query.data.startswith("time_"):
-        minutes = int(query.data.split("_")[1])
-        user_states[user_id]["minutes"] = minutes
-        user_states[user_id]["step"] = "confirm"
+        s = user_states.get(user_id)
+        if not s:
+            await query.answer("❗ Panel lejárt", show_alert=True)
+            return
 
-        s = user_states[user_id]
+        minutes = int(query.data.split("_")[1])
+        s["minutes"] = minutes
+        s["step"] = "confirm"
 
         preview = f"""👀 ELŐNÉZET:
 
@@ -119,9 +122,12 @@ Elindítod?"""
         await query.message.reply_text(preview, reply_markup=keyboard)
         return
 
-    # CONFIRM
+    # ===== CONFIRM =====
     if query.data == "confirm_yes":
-        s = user_states[user_id]
+        s = user_states.get(user_id)
+        if not s:
+            await query.answer("❗ Panel lejárt", show_alert=True)
+            return
 
         context.args = [
             str(s["winners"]),
@@ -130,16 +136,17 @@ Elindítod?"""
         ]
 
         del user_states[user_id]
-
         await create(update, context)
         return
 
     if query.data == "confirm_no":
-        del user_states[user_id]
+        if user_id in user_states:
+            del user_states[user_id]
+
         await query.message.reply_text("❌ Megszakítva")
         return
 
-    # JOIN
+    # ===== JOIN =====
     if query.data.startswith("join_"):
         gid = query.data.split("_")[1]
         g = giveaways.get(gid)
@@ -266,7 +273,6 @@ async def end_giveaway(context, gid):
         return
 
     users = list(g["participants"].keys())
-
     winners = random.sample(users, min(len(users), g["winners"]))
 
     text = "\n".join(
