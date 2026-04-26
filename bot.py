@@ -40,7 +40,12 @@ async def create(update: Update, context: ContextTypes.DEFAULT_TYPE):
         minutes = int(args[-1])
         prize = " ".join(args[1:-1])
 
-        gid = str(update.message.id)
+        # 🔥 FIX: message vs callback
+        if update.message:
+            gid = str(update.message.id)
+        else:
+            gid = str(update.callback_query.message.message_id)
+
         LAST_GIVEAWAY = gid
 
         giveaways[gid] = {
@@ -87,13 +92,13 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = query.from_user.id
 
-    # ===== PANEL START =====
+    # PANEL START
     if query.data == "panel_create":
         user_states[user_id] = {"step": "prize"}
         await query.message.reply_text("🎁 Írd be a nyereményt:")
         return
 
-    # ===== TIME SELECT =====
+    # TIME SELECT
     if query.data.startswith("time_"):
         s = user_states.get(user_id)
         if not s:
@@ -122,7 +127,7 @@ Elindítod?"""
         await query.message.reply_text(preview, reply_markup=keyboard)
         return
 
-    # ===== CONFIRM =====
+    # CONFIRM
     if query.data == "confirm_yes":
         s = user_states.get(user_id)
         if not s:
@@ -136,6 +141,7 @@ Elindítod?"""
         ]
 
         del user_states[user_id]
+
         await create(update, context)
         return
 
@@ -146,7 +152,7 @@ Elindítod?"""
         await query.message.reply_text("❌ Megszakítva")
         return
 
-    # ===== JOIN =====
+    # JOIN
     if query.data.startswith("join_"):
         gid = query.data.split("_")[1]
         g = giveaways.get(gid)
