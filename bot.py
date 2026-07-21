@@ -2,15 +2,23 @@ import os
 import random
 import asyncio
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import (
+    Update,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup
+)
+
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
     CallbackQueryHandler,
     ContextTypes,
     MessageHandler,
-    filters,
+    filters
 )
+
+
+# ================= CONFIG =================
 
 TOKEN = os.getenv("TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
@@ -18,14 +26,33 @@ PORT = int(os.environ.get("PORT", 8080))
 
 CHANNEL_ID = -1003870607173
 
+
+# ================= STORAGE =================
+
 giveaways = {}
 LAST_GIVEAWAY = None
 user_states = {}
 
 
+# ================= HELPERS =================
+
+def escape_html(text):
+    return (
+        str(text)
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&#39;")
+    )
+
+
 # ================= PANEL =================
 
-async def panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def panel(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
     keyboard = InlineKeyboardMarkup([
         [
             InlineKeyboardButton(
@@ -36,49 +63,55 @@ async def panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ])
 
     await update.message.reply_text(
-        "⚙️ Panel:",
+        "⚙️ Giveaway panel:",
         reply_markup=keyboard
     )
 
 
-# ================= CREATE =================
+# ================= CREATE COMMAND =================
 
-async def create(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def create(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
     global LAST_GIVEAWAY
 
     try:
         args = context.args
 
         if len(args) < 3:
-            if update.message:
-                await update.message.reply_text(
-                    "❗ Használat:\n/create <nyertesek> <nyeremény> <percek>\n\n"
-                    "Példa:\n/create 2 50 USDT 10"
-                )
+            await update.message.reply_text(
+                "❗ Használat:\n"
+                "/create <nyertesek> <nyeremény> <percek>\n\n"
+                "Példa:\n"
+                "/create 2 50 USDT 10"
+            )
             return
 
         winners = int(args[0])
         minutes = int(args[-1])
-        prize = " ".join(args[1:-1])
+        prize = " ".join(args[1:-1]).strip()
 
         if winners <= 0:
-            raise ValueError("A nyertesek száma legalább 1 legyen.")
+            await update.message.reply_text(
+                "❗ A nyertesek száma legalább 1 legyen."
+            )
+            return
 
         if minutes <= 0:
-            raise ValueError("Az idő legalább 1 perc legyen.")
+            await update.message.reply_text(
+                "❗ Az idő legalább 1 perc legyen."
+            )
+            return
 
-        if not prize.strip():
-            raise ValueError("A nyeremény nem lehet üres.")
+        if not prize:
+            await update.message.reply_text(
+                "❗ A nyeremény nem lehet üres."
+            )
+            return
 
-        # Parancsból vagy panelből indított giveaway azonosítója
-        if update.message:
-            gid = str(update.message.id)
-        elif update.callback_query:
-            gid = str(update.callback_query.message.message_id)
-        else:
-            gid = str(random.randint(100000, 999999))
+        gid = f"{update.message.message_id}_{update.effective_user.id}"
 
-        # Ha ugyanarról a panelüzenetről többször indítanának
         while gid in giveaways:
             gid = f"{gid}_{random.randint(1000, 9999)}"
 
@@ -90,7 +123,7 @@ async def create(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "prize": prize,
             "remaining": minutes,
             "message_id": None,
-            "active": True,
+            "active": True
         }
 
         keyboard = InlineKeyboardMarkup([
@@ -102,7 +135,7 @@ async def create(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ]
         ])
 
-        text = f"""🎉 GIVEAWAY!
+        caption = f"""🎉 GIVEAWAY!
 
 🎁 {prize}
 👥 Nyertesek: {winners}
@@ -116,8 +149,12 @@ async def create(update: Update, context: ContextTypes.DEFAULT_TYPE):
             msg = await context.bot.send_photo(
                 chat_id=CHANNEL_ID,
                 photo=photo,
-                caption=text,
-                reply_markup=keyboard
+                caption=caption,
+                reply_markup=keyboard,
+                connect_timeout=30,
+                read_timeout=60,
+                write_timeout=60,
+                pool_timeout=30
             )
 
         giveaways[gid]["message_id"] = msg.message_id
@@ -126,55 +163,41 @@ async def create(update: Update, context: ContextTypes.DEFAULT_TYPE):
             timer(context, gid)
         )
 
-        if update.message:
-            await update.message.reply_text(
-                "✅ A giveaway sikeresen elindult!"
-            )
-        elif update.callback_query:
-            await update.callback_query.message.reply_text(
-                "✅ A giveaway sikeresen elindult!"
-            )
-
-    except (ValueError, IndexError) as e:
-        print("CREATE INPUT ERROR:", e)
-
-        message = (
-            "❗ Hibás adatok.\n\n"
-            "Parancs használata:\n"
-            "/create <nyertesek> <nyeremény> <percek>\n\n"
-            "Példa:\n"
-            "/create 2 50 USDT 10"
+        await update.message.reply_text(
+            "✅ A giveaway sikeresen elindult!"
         )
 
-        if update.message:
-            await update.message.reply_text(message)
-        elif update.callback_query:
-            await update.callback_query.message.reply_text(message)
-
     except FileNotFoundError:
-        print("CREATE ERROR: image.jpg nem található")
+        await update.message.reply_text(
+            "❌ Az image.jpg fájl nem található."
+        )
 
-        message = "❌ Az image.jpg fájl nem található."
-
-        if update.message:
-            await update.message.reply_text(message)
-        elif update.callback_query:
-            await update.callback_query.message.reply_text(message)
+    except ValueError:
+        await update.message.reply_text(
+            "❗ A nyertesek és a percek helyére számot írj."
+        )
 
     except Exception as e:
-        print("CREATE ERROR:", e)
+        print(
+            "CREATE ERROR:",
+            type(e).__name__,
+            repr(e)
+        )
 
-        message = "❌ Hiba történt a giveaway létrehozásakor."
-
-        if update.message:
-            await update.message.reply_text(message)
-        elif update.callback_query:
-            await update.callback_query.message.reply_text(message)
+        await update.message.reply_text(
+            f"❌ Nem sikerült elindítani a giveawayt.\n\n"
+            f"Hiba: {type(e).__name__}: {e}"
+        )
 
 
-# ================= BUTTON =================
+# ================= CALLBACK BUTTONS =================
 
-async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def button(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+    global LAST_GIVEAWAY
+
     query = update.callback_query
 
     if not query:
@@ -186,11 +209,11 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ================= PANEL START =================
 
     if callback_data == "panel_create":
+        await query.answer()
+
         user_states[user_id] = {
             "step": "prize"
         }
-
-        await query.answer()
 
         await query.message.reply_text(
             "🎁 Írd be a nyereményt:"
@@ -204,19 +227,23 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if not state:
             await query.answer(
-                "❗ A panel lejárt. Indítsd el újra a /panel paranccsal.",
+                "❗ A panel lejárt. Indítsd újra a /panel paranccsal.",
                 show_alert=True
             )
             return
 
         try:
-            minutes = int(callback_data.split("_", 1)[1])
+            minutes = int(
+                callback_data.split("_", 1)[1]
+            )
         except (ValueError, IndexError):
             await query.answer(
                 "❌ Hibás időbeállítás.",
                 show_alert=True
             )
             return
+
+        await query.answer()
 
         state["minutes"] = minutes
         state["step"] = "confirm"
@@ -246,8 +273,6 @@ Elindítod?"""
             ]
         ])
 
-        await query.answer()
-
         await query.message.reply_text(
             preview,
             reply_markup=keyboard
@@ -261,32 +286,109 @@ Elindítod?"""
 
         if not state:
             await query.answer(
-                "❗ A panel lejárt. Indítsd el újra a /panel paranccsal.",
+                "❗ A panel lejárt. Indítsd újra a /panel paranccsal.",
                 show_alert=True
             )
             return
 
-        context.args = [
-            str(state["winners"]),
-            *state["prize"].split(),
-            str(state["minutes"])
-        ]
+        winners = state["winners"]
+        prize = state["prize"]
+        minutes = state["minutes"]
 
-        del user_states[user_id]
-
+        # Fontos: azonnal válaszolunk a callbackre
         await query.answer(
             "⏳ Giveaway indítása..."
         )
 
-        await create(update, context)
+        gid = f"{query.message.message_id}_{user_id}"
+
+        while gid in giveaways:
+            gid = f"{gid}_{random.randint(1000, 9999)}"
+
+        LAST_GIVEAWAY = gid
+
+        giveaways[gid] = {
+            "participants": {},
+            "winners": winners,
+            "prize": prize,
+            "remaining": minutes,
+            "message_id": None,
+            "active": True
+        }
+
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton(
+                    "🎉 Részt veszek (0)",
+                    callback_data=f"join_{gid}"
+                )
+            ]
+        ])
+
+        caption = f"""🎉 GIVEAWAY!
+
+🎁 {prize}
+👥 Nyertesek: {winners}
+⏳ {minutes} perc
+
+🔗 https://abethunters.com/
+
+👇 Jelentkezz!"""
+
+        try:
+            with open("image.jpg", "rb") as photo:
+                msg = await context.bot.send_photo(
+                    chat_id=CHANNEL_ID,
+                    photo=photo,
+                    caption=caption,
+                    reply_markup=keyboard,
+                    connect_timeout=30,
+                    read_timeout=60,
+                    write_timeout=60,
+                    pool_timeout=30
+                )
+
+            giveaways[gid]["message_id"] = msg.message_id
+
+            user_states.pop(user_id, None)
+
+            context.application.create_task(
+                timer(context, gid)
+            )
+
+            await query.message.reply_text(
+                "✅ A giveaway sikeresen elindult!"
+            )
+
+        except FileNotFoundError:
+            giveaways.pop(gid, None)
+
+            await query.message.reply_text(
+                "❌ Az image.jpg fájl nem található."
+            )
+
+        except Exception as e:
+            giveaways.pop(gid, None)
+
+            print(
+                "PANEL CREATE ERROR:",
+                type(e).__name__,
+                repr(e)
+            )
+
+            await query.message.reply_text(
+                f"❌ Nem sikerült elindítani a giveawayt.\n\n"
+                f"Hiba: {type(e).__name__}: {e}"
+            )
+
         return
 
     # ================= CONFIRM NO =================
 
     if callback_data == "confirm_no":
-        user_states.pop(user_id, None)
-
         await query.answer()
+
+        user_states.pop(user_id, None)
 
         await query.message.reply_text(
             "❌ Giveaway létrehozása megszakítva."
@@ -316,7 +418,9 @@ Elindítod?"""
         )
 
         if uid in giveaway["participants"]:
-            count = len(giveaway["participants"])
+            count = len(
+                giveaway["participants"]
+            )
 
             await query.answer(
                 f"❗ Már csatlakoztál ehhez a giveawayhez!\n\n"
@@ -326,7 +430,17 @@ Elindítod?"""
             return
 
         giveaway["participants"][uid] = name
-        count = len(giveaway["participants"])
+
+        count = len(
+            giveaway["participants"]
+        )
+
+        # Először azonnal visszajelzünk a felhasználónak
+        await query.answer(
+            f"✅ Sikeresen csatlakoztál a giveawayhez!\n\n"
+            f"Jelenlegi résztvevők: {count}",
+            show_alert=True
+        )
 
         keyboard = InlineKeyboardMarkup([
             [
@@ -341,17 +455,23 @@ Elindítod?"""
             await context.bot.edit_message_reply_markup(
                 chat_id=CHANNEL_ID,
                 message_id=giveaway["message_id"],
-                reply_markup=keyboard
+                reply_markup=keyboard,
+                connect_timeout=30,
+                read_timeout=30,
+                write_timeout=30,
+                pool_timeout=30
             )
-        except Exception as e:
-            print("JOIN BUTTON UPDATE ERROR:", e)
 
-        await query.answer(
-            f"✅ Sikeresen csatlakoztál a giveawayhez!\n\n"
-            f"Jelenlegi résztvevők: {count}",
-            show_alert=True
-        )
+        except Exception as e:
+            print(
+                "JOIN BUTTON UPDATE ERROR:",
+                type(e).__name__,
+                repr(e)
+            )
+
         return
+
+    # ================= UNKNOWN =================
 
     await query.answer(
         "❌ Ismeretlen művelet.",
@@ -359,13 +479,16 @@ Elindítod?"""
     )
 
 
-# ================= PANEL INPUT =================
+# ================= PANEL MESSAGE INPUT =================
 
 async def message_handler(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
 ):
-    if not update.message or not update.message.text:
+    if not update.message:
+        return
+
+    if not update.message.text:
         return
 
     user_id = update.message.from_user.id
@@ -377,7 +500,7 @@ async def message_handler(
     step = state.get("step")
     text = update.message.text.strip()
 
-    # ================= PRIZE INPUT =================
+    # ================= PRIZE =================
 
     if step == "prize":
         if not text:
@@ -394,7 +517,7 @@ async def message_handler(
         )
         return
 
-    # ================= WINNERS INPUT =================
+    # ================= WINNERS =================
 
     if step == "winners":
         try:
@@ -455,11 +578,17 @@ async def message_handler(
 
 # ================= TIMER =================
 
-async def timer(context: ContextTypes.DEFAULT_TYPE, gid: str):
+async def timer(
+    context: ContextTypes.DEFAULT_TYPE,
+    gid: str
+):
     while True:
         giveaway = giveaways.get(gid)
 
-        if not giveaway or not giveaway["active"]:
+        if not giveaway:
+            return
+
+        if not giveaway["active"]:
             return
 
         if giveaway["remaining"] <= 0:
@@ -469,7 +598,10 @@ async def timer(context: ContextTypes.DEFAULT_TYPE, gid: str):
 
         giveaway = giveaways.get(gid)
 
-        if not giveaway or not giveaway["active"]:
+        if not giveaway:
+            return
+
+        if not giveaway["active"]:
             return
 
         giveaway["remaining"] -= 1
@@ -477,7 +609,9 @@ async def timer(context: ContextTypes.DEFAULT_TYPE, gid: str):
         if giveaway["remaining"] < 0:
             giveaway["remaining"] = 0
 
-        count = len(giveaway["participants"])
+        count = len(
+            giveaway["participants"]
+        )
 
         keyboard = InlineKeyboardMarkup([
             [
@@ -488,7 +622,7 @@ async def timer(context: ContextTypes.DEFAULT_TYPE, gid: str):
             ]
         ])
 
-        text = f"""🎉 GIVEAWAY!
+        caption = f"""🎉 GIVEAWAY!
 
 🎁 {giveaway['prize']}
 👥 Nyertesek: {giveaway['winners']}
@@ -502,16 +636,28 @@ async def timer(context: ContextTypes.DEFAULT_TYPE, gid: str):
             await context.bot.edit_message_caption(
                 chat_id=CHANNEL_ID,
                 message_id=giveaway["message_id"],
-                caption=text,
-                reply_markup=keyboard
+                caption=caption,
+                reply_markup=keyboard,
+                connect_timeout=30,
+                read_timeout=30,
+                write_timeout=30,
+                pool_timeout=30
             )
+
         except Exception as e:
-            print("TIMER EDIT ERROR:", e)
+            print(
+                "TIMER EDIT ERROR:",
+                type(e).__name__,
+                repr(e)
+            )
 
-    await end_giveaway(context, gid)
+    await end_giveaway(
+        context,
+        gid
+    )
 
 
-# ================= END =================
+# ================= END GIVEAWAY =================
 
 async def end_giveaway(
     context: ContextTypes.DEFAULT_TYPE,
@@ -519,12 +665,17 @@ async def end_giveaway(
 ):
     giveaway = giveaways.get(gid)
 
-    if not giveaway or not giveaway["active"]:
+    if not giveaway:
+        return
+
+    if not giveaway["active"]:
         return
 
     giveaway["active"] = False
 
-    count = len(giveaway["participants"])
+    count = len(
+        giveaway["participants"]
+    )
 
     ended_keyboard = InlineKeyboardMarkup([
         [
@@ -539,10 +690,19 @@ async def end_giveaway(
         await context.bot.edit_message_reply_markup(
             chat_id=CHANNEL_ID,
             message_id=giveaway["message_id"],
-            reply_markup=ended_keyboard
+            reply_markup=ended_keyboard,
+            connect_timeout=30,
+            read_timeout=30,
+            write_timeout=30,
+            pool_timeout=30
         )
+
     except Exception as e:
-        print("END BUTTON ERROR:", e)
+        print(
+            "END BUTTON ERROR:",
+            type(e).__name__,
+            repr(e)
+        )
 
     if not giveaway["participants"]:
         await context.bot.send_message(
@@ -555,7 +715,9 @@ Nem volt egyetlen résztvevő sem."""
         )
         return
 
-    users = list(giveaway["participants"].keys())
+    users = list(
+        giveaway["participants"].keys()
+    )
 
     winner_count = min(
         len(users),
@@ -603,33 +765,48 @@ async def reroll(
         )
         return
 
-    giveaway = giveaways.get(LAST_GIVEAWAY)
+    giveaway = giveaways.get(
+        LAST_GIVEAWAY
+    )
 
-    if not giveaway or not giveaway["participants"]:
+    if not giveaway:
         await update.message.reply_text(
-            "❌ Nincs olyan giveaway, amelyben vannak résztvevők."
+            "❌ A giveaway nem található."
         )
         return
 
-    users = list(giveaway["participants"].keys())
+    if not giveaway["participants"]:
+        await update.message.reply_text(
+            "❌ A giveawaynek nincs résztvevője."
+        )
+        return
+
+    users = list(
+        giveaway["participants"].keys()
+    )
 
     try:
-        count = (
-            int(context.args[0])
-            if context.args
-            else giveaway["winners"]
-        )
+        if context.args:
+            count = int(context.args[0])
+        else:
+            count = giveaway["winners"]
 
         if count <= 0:
             raise ValueError
 
     except ValueError:
         await update.message.reply_text(
-            "❗ Használat:\n/reroll\nvagy\n/reroll 2"
+            "❗ Használat:\n"
+            "/reroll\n"
+            "vagy\n"
+            "/reroll 2"
         )
         return
 
-    count = min(count, len(users))
+    count = min(
+        count,
+        len(users)
+    )
 
     new_winners = random.sample(
         users,
@@ -657,7 +834,7 @@ async def reroll(
     )
 
     await update.message.reply_text(
-        f"✅ Reroll elküldve. Új nyertesek száma: {count}"
+        f"✅ Reroll elküldve. Új nyertesek: {count}"
     )
 
 
@@ -671,11 +848,13 @@ async def cancel(
 
     if not LAST_GIVEAWAY:
         await update.message.reply_text(
-            "❌ Nincs leállítható giveaway."
+            "❌ Nincs aktív giveaway."
         )
         return
 
-    giveaway = giveaways.get(LAST_GIVEAWAY)
+    giveaway = giveaways.get(
+        LAST_GIVEAWAY
+    )
 
     if not giveaway:
         await update.message.reply_text(
@@ -694,7 +873,11 @@ async def cancel(
     try:
         await context.bot.delete_message(
             chat_id=CHANNEL_ID,
-            message_id=giveaway["message_id"]
+            message_id=giveaway["message_id"],
+            connect_timeout=30,
+            read_timeout=30,
+            write_timeout=30,
+            pool_timeout=30
         )
 
         await update.message.reply_text(
@@ -702,7 +885,11 @@ async def cancel(
         )
 
     except Exception as e:
-        print("CANCEL ERROR:", e)
+        print(
+            "CANCEL ERROR:",
+            type(e).__name__,
+            repr(e)
+        )
 
         await update.message.reply_text(
             "⚠️ A giveaway leállt, de az üzenetet nem sikerült törölni."
@@ -718,51 +905,100 @@ async def start(
     await update.message.reply_text(
         """Bot fut 🚀
 
-Elérhető parancsok:
+Parancsok:
 
 /panel – Giveaway létrehozása panellel
 /create – Giveaway létrehozása paranccsal
 /reroll – Új nyertes húzása
-/cancel – Aktív giveaway megszakítása"""
+/cancel – Giveaway megszakítása"""
     )
 
 
-# ================= HTML ESCAPE =================
+# ================= ERROR HANDLER =================
 
-def escape_html(text):
-    return (
-        str(text)
-        .replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace('"', "&quot;")
-        .replace("'", "&#39;")
+async def error_handler(
+    update: object,
+    context: ContextTypes.DEFAULT_TYPE
+):
+    print(
+        "BOT ERROR:",
+        type(context.error).__name__,
+        repr(context.error)
     )
 
 
 # ================= MAIN =================
 
 if not TOKEN:
-    raise RuntimeError("A TOKEN környezeti változó nincs beállítva.")
+    raise RuntimeError(
+        "A TOKEN környezeti változó nincs beállítva."
+    )
 
 if not WEBHOOK_URL:
-    raise RuntimeError("A WEBHOOK_URL környezeti változó nincs beállítva.")
+    raise RuntimeError(
+        "A WEBHOOK_URL környezeti változó nincs beállítva."
+    )
 
-app = ApplicationBuilder().token(TOKEN).build()
+app = (
+    ApplicationBuilder()
+    .token(TOKEN)
+    .connect_timeout(30)
+    .read_timeout(30)
+    .write_timeout(30)
+    .pool_timeout(30)
+    .build()
+)
 
-app.add_handler(CommandHandler("start", start))
-app.add_handler(CommandHandler("panel", panel))
-app.add_handler(CommandHandler("create", create))
-app.add_handler(CommandHandler("reroll", reroll))
-app.add_handler(CommandHandler("cancel", cancel))
+app.add_handler(
+    CommandHandler(
+        "start",
+        start
+    )
+)
 
-app.add_handler(CallbackQueryHandler(button))
+app.add_handler(
+    CommandHandler(
+        "panel",
+        panel
+    )
+)
+
+app.add_handler(
+    CommandHandler(
+        "create",
+        create
+    )
+)
+
+app.add_handler(
+    CommandHandler(
+        "reroll",
+        reroll
+    )
+)
+
+app.add_handler(
+    CommandHandler(
+        "cancel",
+        cancel
+    )
+)
+
+app.add_handler(
+    CallbackQueryHandler(
+        button
+    )
+)
 
 app.add_handler(
     MessageHandler(
         filters.TEXT & ~filters.COMMAND,
         message_handler
     )
+)
+
+app.add_error_handler(
+    error_handler
 )
 
 print("Webhook indul 🚀")
